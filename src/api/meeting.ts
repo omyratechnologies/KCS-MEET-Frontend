@@ -84,8 +84,7 @@ export interface WaitingRoomEntry {
 // API Functions
 export const testConnection = async (): Promise<{ success: boolean; error?: string }> => {
     try {
-        const response = await fetch(`${API_URL}/health`);
-        const data = await response.json();
+        await fetch(`${API_URL}/health`);
         return { success: true };
     } catch (error) {
         return { success: false, error: String(error) };

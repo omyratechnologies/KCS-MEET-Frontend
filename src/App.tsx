@@ -62,7 +62,6 @@ function App() {
     const {
         localVideoRef,
         remoteParticipants,
-        isConnected: isWebRTCConnected,
         isAudioEnabled,
         isVideoEnabled,
         isScreenSharing,
