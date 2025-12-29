@@ -109,35 +109,47 @@ function App() {
             setIncomingCall(data);
         });
 
-        // Call was accepted
+        // Call was accepted (caller receives this when callee picks up)
         socket.on('call-accepted', (_data: { callId: string; meetingId: string }) => {
-            log('✅ Call accepted!');
-            setCallStatus('Call connected');
+            log('✅ Call accepted by other party!');
+            setCallStatus('In call');
             setIsInCall(true);
+            // The meeting should already be set from handleInitiateCall
         });
 
-        // Call was rejected
+        // Call was rejected (caller receives this when callee declines)
         socket.on('call-rejected', (data: { callId: string; reason?: string }) => {
-            log(`❌ Call rejected: ${data.reason || 'No reason'}`);
-            setCallStatus('');
-            setActiveCallId(null);
-            setIsInCall(false);
-        });
-
-        // Call missed (timeout)
-        socket.on('call-missed', (_data: { callId: string }) => {
-            log('📵 Call missed (no answer)');
-            setCallStatus('');
-            setActiveCallId(null);
-        });
-
-        // Call ended
-        socket.on('call-ended', (_data: { callId: string }) => {
-            log('📴 Call ended');
-            setCallStatus('');
+            log(`❌ Call rejected: ${data.reason || 'Declined'}`);
+            setCallStatus('Call declined');
             setActiveCallId(null);
             setIsInCall(false);
             setCurrentMeeting(null);
+            // Clear status after 2 seconds
+            setTimeout(() => setCallStatus(''), 2000);
+        });
+
+        // Call missed (timeout or user disconnected)
+        socket.on('call-missed', (data: { callId: string; reason?: string }) => {
+            log(`📵 Call missed: ${data.reason || 'No answer'}`);
+            setCallStatus('Call missed');
+            setActiveCallId(null);
+            setIsInCall(false);
+            setCurrentMeeting(null);
+            setIncomingCall(null);
+            // Clear status after 2 seconds
+            setTimeout(() => setCallStatus(''), 2000);
+        });
+
+        // Call ended
+        socket.on('call-ended', (_data: { callId: string; endedBy?: string }) => {
+            log(`📴 Call ended by other party`);
+            setCallStatus('Call ended');
+            setActiveCallId(null);
+            setIsInCall(false);
+            // Note: Setting currentMeeting to null will trigger WebRTC cleanup via useEffect
+            setCurrentMeeting(null);
+            // Clear status after 2 seconds
+            setTimeout(() => setCallStatus(''), 2000);
         });
 
         // Call cancelled by caller
@@ -364,6 +376,7 @@ function App() {
             log('✅ Call answered!');
             setActiveCallId(incomingCall.callId);
             setIsInCall(true);
+            setCallStatus('In call');
             
             // Get the meeting by ID for WebRTC
             const meetingResult = await getMeetingById(incomingCall.meetingId);
@@ -376,6 +389,7 @@ function App() {
             setIncomingCall(null);
         } else {
             log(`❌ Failed to answer: ${result.error}`);
+            setIncomingCall(null);
         }
     };
 
