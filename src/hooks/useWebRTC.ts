@@ -6,6 +6,78 @@ import { getAuthToken, getWebRTCConfig, type Meeting } from '../api/meeting';
 // Socket.IO server is on a separate subdomain
 const SOCKET_URL = 'https://devws.letscatchup-kcs.com';
 
+// ============================================
+// DYNAMIC OPTIMIZATION TYPES (from backend)
+// ============================================
+
+// Meeting tier type (compatible with erasableSyntaxOnly)
+export type MeetingTier = "SMALL" | "MEDIUM" | "LARGE" | "MASSIVE";
+
+// Meeting tier constants for reference
+export const MeetingTiers = {
+    SMALL: "SMALL" as const,       // 1-5 participants
+    MEDIUM: "MEDIUM" as const,     // 6-15 participants
+    LARGE: "LARGE" as const,       // 16-30 participants
+    MASSIVE: "MASSIVE" as const,   // 31+ participants
+} as const;
+
+export interface DynamicMeetingConfig {
+    tier: MeetingTier;
+    participantCount: number;
+
+    video: {
+        maxBitrate: number;
+        recommendedWidth: number;
+        recommendedHeight: number;
+        recommendedFps: number;
+        preferredLayer: number;
+        enableSimulcast: boolean;
+    };
+
+    audio: {
+        maxBitrate: number;
+        echoCancellation: boolean;
+        noiseSuppression: boolean;
+        autoGainControl: boolean;
+    };
+
+    screenShare: {
+        maxBitrate: number;
+        maxFps: number;
+    };
+
+    transport: {
+        initialBitrate: number;
+    };
+
+    features: {
+        enableVideoByDefault: boolean;
+        enableAudioByDefault: boolean;
+        showAllThumbnails: boolean;
+        maxVisibleThumbnails: number;
+        enableActiveSpeakerMode: boolean;
+    };
+}
+
+export interface BandwidthEstimate {
+    perParticipantUpload: number;
+    perParticipantDownload: number;
+    totalServerBandwidth: number;
+}
+
+export interface SimulcastEncoding {
+    rid: string;
+    maxBitrate: number;
+    scaleResolutionDownBy: number;
+    scalabilityMode?: string;
+}
+
+export interface OptimizationData {
+    config: DynamicMeetingConfig;
+    simulcastEncodings: SimulcastEncoding[];
+    bandwidthEstimate: BandwidthEstimate;
+}
+
 interface RemoteParticipant {
     odId: string;
     userName: string;
@@ -24,6 +96,10 @@ interface UseWebRTCReturn {
     isScreenSharing: boolean;
     connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'fallback';
     error: string | null;
+    // Dynamic optimization data
+    optimization: OptimizationData | null;
+    meetingTier: MeetingTier | null;
+    // Actions
     startCamera: () => Promise<void>;
     startMicrophone: () => Promise<void>;
     stopCamera: () => void;
@@ -45,6 +121,10 @@ export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCRe
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'fallback'>('disconnected');
+
+    // Dynamic optimization state
+    const [optimization, setOptimization] = useState<OptimizationData | null>(null);
+    const [meetingTier, setMeetingTier] = useState<MeetingTier | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     const socketRef = useRef<Socket | null>(null);
@@ -377,6 +457,22 @@ export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCRe
                 setIsConnected(true);
                 setConnectionStatus('connected');
 
+                // 🎚️ Capture dynamic optimization config from server
+                if (data.optimization) {
+                    console.log('🎚️ Meeting optimization config:', data.optimization);
+                    setOptimization(data.optimization);
+                    setMeetingTier(data.optimization.config?.tier || null);
+                    
+                    // Log the tier and recommended settings
+                    const config = data.optimization.config;
+                    if (config) {
+                        console.log(`📊 Meeting tier: ${config.tier} (${config.participantCount} participants)`);
+                        console.log(`📹 Video: ${config.video.recommendedWidth}x${config.video.recommendedHeight}@${config.video.recommendedFps}fps, max ${config.video.maxBitrate/1000}kbps`);
+                        console.log(`🎙️ Audio: max ${config.audio.maxBitrate/1000}kbps`);
+                        console.log(`🎯 Features: video by default=${config.features.enableVideoByDefault}, audio by default=${config.features.enableAudioByDefault}`);
+                    }
+                }
+
                 // Store existing producers to consume after transport is ready
                 if (data.existingProducers && data.existingProducers.length > 0) {
                     console.log('📋 Existing producers to consume:', data.existingProducers);
@@ -427,15 +523,15 @@ export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCRe
                             // Generate unique request ID to match response
                             const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                             console.log(`📤 Producing ${kind}, requestId: ${requestId}`);
-                            
-                            socket.emit('produce', { 
-                                meetingId: meeting.id, 
-                                kind, 
+
+                            socket.emit('produce', {
+                                meetingId: meeting.id,
+                                kind,
                                 rtpParameters,
                                 requestId,
                                 appData, // Pass appData to identify screen share
                             });
-                            
+
                             // Listen for the specific response
                             const handler = (response: { producerId: string; requestId?: string }) => {
                                 // Match by requestId if available, otherwise accept any
@@ -446,7 +542,7 @@ export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCRe
                                 }
                             };
                             socket.on('produced', handler);
-                            
+
                             // Timeout fallback
                             setTimeout(() => {
                                 socket.off('produced', handler);
@@ -500,9 +596,9 @@ export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCRe
             });
 
             // New producer from another participant
-            socket.on('new-producer', async (data: { 
-                participantId: string; 
-                producerId: string; 
+            socket.on('new-producer', async (data: {
+                participantId: string;
+                producerId: string;
                 kind: 'audio' | 'video';
                 appData?: { type?: string };
             }) => {
@@ -562,14 +658,14 @@ export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCRe
 
                     const participantId = data.producerParticipantId;
                     const track = consumer.track;
-                    
+
                     // Get appData from stored map (from new-producer) or from response
                     const storedAppData = producerAppDataRef.current.get(data.producerId);
                     const appData = data.appData || storedAppData;
                     const isScreen = appData?.type === 'screen';
                     const isScreenAudio = appData?.type === 'screenAudio';
 
-                    console.log(`🎬 Got ${data.kind} track (${isScreen ? 'screen' : isScreenAudio ? 'screenAudio' : 'camera/mic'}):`, 
+                    console.log(`🎬 Got ${data.kind} track (${isScreen ? 'screen' : isScreenAudio ? 'screenAudio' : 'camera/mic'}):`,
                         track.id, 'enabled:', track.enabled, 'readyState:', track.readyState, 'muted:', track.muted, 'appData:', appData);
 
                     // Add event listeners to track RTP flow
@@ -654,9 +750,9 @@ export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCRe
             });
 
             // Handle producer closed (when someone turns off camera/mic)
-            socket.on('producer-closed', (data: { 
-                participantId: string; 
-                producerId: string; 
+            socket.on('producer-closed', (data: {
+                participantId: string;
+                producerId: string;
                 kind: 'audio' | 'video';
                 appData?: { type?: string };
             }) => {
@@ -734,6 +830,35 @@ export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCRe
                 }
             });
 
+            // 🎚️ Handle dynamic config updates when participants join/leave
+            socket.on('meeting:config-updated', (data: {
+                meetingId: string;
+                config: DynamicMeetingConfig;
+                simulcastEncodings: SimulcastEncoding[];
+                bandwidthEstimate: BandwidthEstimate;
+                reason: 'participant_joined' | 'participant_left';
+                timestamp: string;
+            }) => {
+                console.log(`🎚️ Meeting config updated (${data.reason}):`, data.config.tier);
+                console.log(`📊 New tier: ${data.config.tier} (${data.config.participantCount} participants)`);
+                console.log(`📹 Video: ${data.config.video.recommendedWidth}x${data.config.video.recommendedHeight}@${data.config.video.recommendedFps}fps`);
+                console.log(`📊 Bandwidth: ${data.bandwidthEstimate.perParticipantUpload}kbps up, ${data.bandwidthEstimate.perParticipantDownload}kbps down`);
+                
+                // Update optimization state
+                setOptimization({
+                    config: data.config,
+                    simulcastEncodings: data.simulcastEncodings,
+                    bandwidthEstimate: data.bandwidthEstimate,
+                });
+                setMeetingTier(data.config.tier);
+
+                // TODO: Frontend can use this to:
+                // 1. Adjust getUserMedia constraints (resolution, fps)
+                // 2. Update producer encodings
+                // 3. Show/hide UI elements based on features
+                // 4. Display tier badge to user
+            });
+
             socket.on('error', (error: any) => {
                 console.error('❌ Socket error:', error);
                 setError(error.message || 'Socket error');
@@ -805,6 +930,10 @@ export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCRe
         isScreenSharing,
         connectionStatus,
         error,
+        // Dynamic optimization
+        optimization,
+        meetingTier,
+        // Actions
         startCamera,
         startMicrophone,
         stopCamera,

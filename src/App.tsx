@@ -67,6 +67,10 @@ function App() {
         isScreenSharing,
         connectionStatus,
         error: webRTCError,
+        // Dynamic optimization
+        optimization,
+        meetingTier,
+        // Actions
         toggleVideo,
         toggleAudio,
         toggleScreenShare,
@@ -647,6 +651,48 @@ function App() {
                             {connectionStatus === 'disconnected' && '🔴 Disconnected'}
                         </span>
                     </p>
+
+                    {/* 🎚️ Dynamic Optimization Display */}
+                    {meetingTier && optimization && (
+                        <div className="optimization-info" style={{ 
+                            marginTop: 12, 
+                            padding: 12, 
+                            backgroundColor: '#1a1a2e', 
+                            borderRadius: 8,
+                            border: '1px solid #333'
+                        }}>
+                            <p style={{ margin: '0 0 8px 0' }}>
+                                <strong>🎚️ Meeting Tier:</strong>{' '}
+                                <span style={{ 
+                                    padding: '2px 8px', 
+                                    borderRadius: 4,
+                                    fontWeight: 'bold',
+                                    backgroundColor: 
+                                        meetingTier === 'SMALL' ? '#22c55e' :
+                                        meetingTier === 'MEDIUM' ? '#3b82f6' :
+                                        meetingTier === 'LARGE' ? '#f59e0b' : '#ef4444',
+                                    color: 'white'
+                                }}>
+                                    {meetingTier}
+                                </span>
+                                <span style={{ marginLeft: 8, opacity: 0.7 }}>
+                                    ({optimization.config.participantCount} participants)
+                                </span>
+                            </p>
+                            <p style={{ margin: '4px 0', fontSize: 12, opacity: 0.8 }}>
+                                📹 Video: {optimization.config.video.recommendedWidth}×{optimization.config.video.recommendedHeight}@{optimization.config.video.recommendedFps}fps, 
+                                max {(optimization.config.video.maxBitrate / 1000).toFixed(0)}kbps
+                            </p>
+                            <p style={{ margin: '4px 0', fontSize: 12, opacity: 0.8 }}>
+                                📊 Bandwidth: ↑{optimization.bandwidthEstimate.perParticipantUpload}kbps, 
+                                ↓{optimization.bandwidthEstimate.perParticipantDownload}kbps
+                            </p>
+                            <p style={{ margin: '4px 0', fontSize: 12, opacity: 0.6 }}>
+                                🎯 Features: Video default={optimization.config.features.enableVideoByDefault ? 'ON' : 'OFF'}, 
+                                Audio default={optimization.config.features.enableAudioByDefault ? 'ON' : 'OFF'}
+                            </p>
+                        </div>
+                    )}
 
                     <div className="button-group">
                         <button onClick={toggleVideo} className={isVideoEnabled ? 'btn-danger' : 'btn-primary'}>
