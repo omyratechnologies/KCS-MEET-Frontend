@@ -4,22 +4,42 @@ import {
     setAuthToken, 
     getAuthToken, 
     testConnection, 
-    createInstantMeeting, 
+    createInstantMeeting,
+    createScheduledMeeting,
     joinMeeting as apiJoinMeeting,
     getMeetingById,
+    getMyMeetings,
+    startMeeting,
+    endMeeting as apiEndMeeting,
+    // Call APIs
     initiateCall,
     answerCall,
     rejectCall,
     endCall,
     cancelCall,
     getActiveCall,
+    // Waiting Room APIs
     checkAdmissionRequired,
     requestAdmission,
     getWaitingRoom,
     admitParticipant,
     rejectParticipant,
+    // Host Controls
+    addCoHost,
+    removeCoHost,
+    muteAllParticipants,
+    // Participants
+    getParticipants,
+    removeParticipant,
+    // Chat & Recordings
+    getChatMessages,
+    getRecordings,
+    // Types
     type Meeting,
     type WaitingRoomEntry,
+    type Participant,
+    type ChatMessage,
+    type Recording,
 } from './api/meeting';
 import { useWebRTC } from './hooks/useWebRTC';
 import './App.css';
@@ -32,6 +52,20 @@ interface IncomingCall {
     callerId: string;
     callerName: string;
     callType: 'audio' | 'video';
+}
+
+interface Reaction {
+    id: string;
+    participantId: string;
+    userName: string;
+    reaction: string;
+    timestamp: Date;
+}
+
+interface HandRaise {
+    participantId: string;
+    userName: string;
+    raised: boolean;
 }
 
 function App() {
@@ -56,6 +90,41 @@ function App() {
     const [waitingPosition, setWaitingPosition] = useState<number | null>(null);
     const [enableWaitingRoom, setEnableWaitingRoom] = useState(false);
     
+    // Host controls state
+    const [isHost, setIsHost] = useState(false);
+    const [participants, setParticipants] = useState<Participant[]>([]);
+    const [coHostUserId, setCoHostUserId] = useState('');
+    const [, setIsAllMuted] = useState(false);
+    
+    // Chat state
+    const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+    const [chatInput, setChatInput] = useState('');
+    const [showChat, setShowChat] = useState(false);
+    const [typingUsers, setTypingUsers] = useState<string[]>([]);
+    
+    // Reactions & Hand Raise
+    const [reactions, setReactions] = useState<Reaction[]>([]);
+    const [raisedHands, setRaisedHands] = useState<HandRaise[]>([]);
+    const [isHandRaised, setIsHandRaised] = useState(false);
+    
+    // Recordings
+    const [, setRecordings] = useState<Recording[]>([]);
+    const [isRecording, setIsRecording] = useState(false);
+    
+    // Scheduled meetings
+    const [myMeetings, setMyMeetings] = useState<Meeting[]>([]);
+    const [showScheduleDialog, setShowScheduleDialog] = useState(false);
+    const [scheduleForm, setScheduleForm] = useState({
+        title: '',
+        description: '',
+        scheduledStart: '',
+        scheduledEnd: '',
+        invitedUserIds: '',
+    });
+    
+    // Active tab
+    const [activeTab, setActiveTab] = useState<'meeting' | 'call' | 'schedule'>('meeting');
+    
     // Socket ref for real-time events
     const socketRef = useRef<Socket | null>(null);
 
@@ -67,10 +136,8 @@ function App() {
         isScreenSharing,
         connectionStatus,
         error: webRTCError,
-        // Dynamic optimization
         optimization,
         meetingTier,
-        // Actions
         toggleVideo,
         toggleAudio,
         toggleScreenShare,
@@ -91,7 +158,7 @@ function App() {
         }
     }, [token]);
 
-    // Connect socket for real-time call and waiting room notifications
+    // Connect socket for real-time events
     useEffect(() => {
         if (!token) return;
 
@@ -106,87 +173,158 @@ function App() {
             log('🔌 Socket connected for notifications');
         });
 
-        // Incoming call notification
+        // ============================================
+        // CALL EVENTS
+        // ============================================
         socket.on('incoming-call', (data: IncomingCall) => {
             log(`📞 Incoming ${data.callType} call from ${data.callerName}`);
             setIncomingCall(data);
         });
 
-        // Call was accepted (caller receives this when callee picks up)
-        socket.on('call-accepted', (_data: { callId: string; meetingId: string }) => {
+        socket.on('call-accepted', () => {
             log('✅ Call accepted by other party!');
             setCallStatus('In call');
             setIsInCall(true);
-            // The meeting should already be set from handleInitiateCall
         });
 
-        // Call was rejected (caller receives this when callee declines)
         socket.on('call-rejected', (data: { callId: string; reason?: string }) => {
             log(`❌ Call rejected: ${data.reason || 'Declined'}`);
             setCallStatus('Call declined');
             setActiveCallId(null);
             setIsInCall(false);
             setCurrentMeeting(null);
-            // Clear status after 2 seconds
             setTimeout(() => setCallStatus(''), 2000);
         });
 
-        // Call missed (timeout or user disconnected)
-        socket.on('call-missed', (data: { callId: string; reason?: string }) => {
-            log(`📵 Call missed: ${data.reason || 'No answer'}`);
+        socket.on('call-missed', () => {
+            log(`📵 Call missed`);
             setCallStatus('Call missed');
             setActiveCallId(null);
             setIsInCall(false);
             setCurrentMeeting(null);
             setIncomingCall(null);
-            // Clear status after 2 seconds
             setTimeout(() => setCallStatus(''), 2000);
         });
 
-        // Call ended
-        socket.on('call-ended', (_data: { callId: string; endedBy?: string }) => {
+        socket.on('call-ended', () => {
             log(`📴 Call ended by other party`);
             setCallStatus('Call ended');
             setActiveCallId(null);
             setIsInCall(false);
-            // Note: Setting currentMeeting to null will trigger WebRTC cleanup via useEffect
             setCurrentMeeting(null);
-            // Clear status after 2 seconds
             setTimeout(() => setCallStatus(''), 2000);
         });
 
-        // Call cancelled by caller
-        socket.on('call-cancelled', (_data: { callId: string }) => {
+        socket.on('call-cancelled', () => {
             log('❌ Call was cancelled');
             setIncomingCall(null);
         });
 
-        // Admission granted (for waiting room)
-        socket.on('admission-granted', (_data: { meetingId: string }) => {
+        // ============================================
+        // WAITING ROOM EVENTS
+        // ============================================
+        socket.on('admission-granted', () => {
             log('✅ You have been admitted to the meeting!');
             setIsWaiting(false);
             setWaitingPosition(null);
-            // Now join WebRTC
             setShouldAutoJoin(true);
         });
 
-        // Admission rejected
-        socket.on('admission-rejected', (data: { meetingId: string; reason?: string }) => {
+        socket.on('admission-rejected', (data: { reason?: string }) => {
             log(`❌ Admission rejected: ${data.reason || 'No reason'}`);
             setIsWaiting(false);
             setWaitingPosition(null);
             setCurrentMeeting(null);
         });
 
-        // Waiting room update (for hosts)
-        socket.on('waiting-room-update', (data: { meetingId: string; waitingRoom: WaitingRoomEntry[] }) => {
+        socket.on('waiting-room-update', (data: { waitingRoom: WaitingRoomEntry[] }) => {
             log(`🚪 Waiting room updated: ${data.waitingRoom.length} waiting`);
             setWaitingRoom(data.waitingRoom);
         });
 
-        // New admission request (for hosts)
-        socket.on('admission-requested', (data: { meetingId: string; userId: string; userName: string }) => {
+        socket.on('admission-requested', (data: { userName: string }) => {
             log(`🚪 ${data.userName} is waiting to join`);
+        });
+
+        // ============================================
+        // MEETING CHAT EVENTS
+        // ============================================
+        socket.on('new-message', (message: ChatMessage) => {
+            log(`💬 ${message.sender_name}: ${message.message}`);
+            setChatMessages(prev => [...prev, message]);
+        });
+
+        socket.on('user-typing', (data: { userName: string; typing: boolean }) => {
+            if (data.typing) {
+                setTypingUsers(prev => [...new Set([...prev, data.userName])]);
+            } else {
+                setTypingUsers(prev => prev.filter(u => u !== data.userName));
+            }
+        });
+
+        // ============================================
+        // REACTIONS & HAND RAISE EVENTS
+        // ============================================
+        socket.on('participant-reaction', (data: { participantId: string; userName: string; reaction: string }) => {
+            log(`${data.reaction} from ${data.userName}`);
+            const newReaction: Reaction = {
+                id: `${Date.now()}-${data.participantId}`,
+                ...data,
+                timestamp: new Date(),
+            };
+            setReactions(prev => [...prev.slice(-10), newReaction]);
+            // Auto-remove after 3s
+            setTimeout(() => {
+                setReactions(prev => prev.filter(r => r.id !== newReaction.id));
+            }, 3000);
+        });
+
+        socket.on('hand-raised', (data: HandRaise) => {
+            log(`${data.raised ? '✋' : '👇'} ${data.userName} ${data.raised ? 'raised' : 'lowered'} hand`);
+            if (data.raised) {
+                setRaisedHands(prev => [...prev.filter(h => h.participantId !== data.participantId), data]);
+            } else {
+                setRaisedHands(prev => prev.filter(h => h.participantId !== data.participantId));
+            }
+        });
+
+        // ============================================
+        // HOST CONTROL EVENTS
+        // ============================================
+        socket.on('all-muted', () => {
+            log(`🔇 All participants muted by host`);
+            setIsAllMuted(true);
+        });
+
+        socket.on('all-unmuted', () => {
+            log(`🔊 All participants unmuted`);
+            setIsAllMuted(false);
+        });
+
+        socket.on('muted-by-host', (data: { muted: boolean }) => {
+            log(`${data.muted ? '🔇 You were muted' : '🔊 You were unmuted'} by host`);
+        });
+
+        socket.on('participant-joined', (data: { userName: string }) => {
+            log(`👋 ${data.userName} joined the meeting`);
+            if (currentMeeting) {
+                refreshParticipants(currentMeeting.id);
+            }
+        });
+
+        socket.on('participant-left', (data: { userName: string }) => {
+            log(`👋 ${data.userName} left the meeting`);
+            if (currentMeeting) {
+                refreshParticipants(currentMeeting.id);
+            }
+        });
+
+        // ============================================
+        // RECORDING EVENTS
+        // ============================================
+        socket.on('recording-status-changed', (data: { recording: boolean }) => {
+            log(`🎥 Recording ${data.recording ? 'started' : 'stopped'}`);
+            setIsRecording(data.recording);
         });
 
         socket.on('disconnect', () => {
@@ -196,24 +334,30 @@ function App() {
         return () => {
             socket.disconnect();
         };
-    }, [token, log]);
+    }, [token, log, currentMeeting]);
 
     // Join socket room when meeting changes
     useEffect(() => {
         if (socketRef.current && currentMeeting) {
             log(`🔗 Joining socket room for meeting ${currentMeeting.id}`);
             socketRef.current.emit('join-meeting', { meetingId: currentMeeting.id });
+            
+            // Set host status
+            setIsHost(currentMeeting.creator_id === getCurrentUserId());
+            
+            // Load chat history
+            loadChatHistory(currentMeeting.id);
+            
+            // Load participants
+            refreshParticipants(currentMeeting.id);
         }
     }, [currentMeeting, log]);
 
-    // Poll waiting room for hosts with waiting room enabled
+    // Poll waiting room for hosts
     useEffect(() => {
         if (!currentMeeting || !enableWaitingRoom) return;
         
-        // Initial fetch
         refreshWaitingRoom(currentMeeting.id);
-        
-        // Poll every 3 seconds
         const interval = setInterval(() => {
             refreshWaitingRoom(currentMeeting.id);
         }, 3000);
@@ -221,7 +365,7 @@ function App() {
         return () => clearInterval(interval);
     }, [currentMeeting, enableWaitingRoom]);
 
-    // Auto-join WebRTC when meeting is set and shouldAutoJoin is true
+    // Auto-join WebRTC when meeting is set
     useEffect(() => {
         if (currentMeeting && shouldAutoJoin && !isWaiting) {
             log('🔌 Auto-joining WebRTC...');
@@ -230,11 +374,51 @@ function App() {
         }
     }, [currentMeeting, shouldAutoJoin, isWaiting, webRTCJoin, log]);
 
-    // Refresh waiting room for hosts
+    // Display WebRTC errors
+    useEffect(() => {
+        if (webRTCError) {
+            log(`❌ WebRTC Error: ${webRTCError}`);
+        }
+    }, [webRTCError, log]);
+
+    // Helper functions
+    const getCurrentUserId = () => {
+        // Extract user ID from JWT token (simplified)
+        try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            return payload.user_id || payload.sub;
+        } catch {
+            return '';
+        }
+    };
+
     const refreshWaitingRoom = async (meetingId: string) => {
         const result = await getWaitingRoom(meetingId);
         if (result.success && result.data) {
             setWaitingRoom(result.data);
+        }
+    };
+
+    const refreshParticipants = async (meetingId: string) => {
+        const result = await getParticipants(meetingId);
+        if (result.success && result.data) {
+            setParticipants(result.data);
+        }
+    };
+
+    const loadChatHistory = async (meetingId: string) => {
+        const result = await getChatMessages(meetingId);
+        if (result.success && result.data) {
+            setChatMessages(result.data);
+        }
+    };
+
+    // Load recordings function (can be used for recordings panel)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const loadRecordings = async (meetingId: string) => {
+        const result = await getRecordings(meetingId);
+        if (result.success && result.data) {
+            setRecordings(result.data);
         }
     };
 
@@ -246,7 +430,13 @@ function App() {
             log('✅ Connected to API!');
             setIsConnected(true);
             
-            // Check for active call (in case user refreshed during a call)
+            // Load my meetings
+            const meetingsResult = await getMyMeetings();
+            if (meetingsResult.success && meetingsResult.data) {
+                setMyMeetings(meetingsResult.data);
+            }
+            
+            // Check for active call
             const activeCallResult = await getActiveCall();
             if (activeCallResult.success && activeCallResult.data) {
                 const call = activeCallResult.data;
@@ -255,7 +445,6 @@ function App() {
                 setIsInCall(true);
                 setCallStatus(`In call - ${call.status}`);
                 
-                // Get the meeting for WebRTC
                 const meetingResult = await getMeetingById(call.meetingId);
                 if (meetingResult.success && meetingResult.data) {
                     setCurrentMeeting(meetingResult.data);
@@ -280,13 +469,61 @@ function App() {
             log(`✅ Meeting created: ${result.data.meeting_code}`);
             setCurrentMeeting(result.data);
             setShouldAutoJoin(true);
+            setIsHost(true);
             
-            // If host with waiting room, start polling
             if (enableWaitingRoom) {
                 refreshWaitingRoom(result.data.id);
             }
         } else {
             log(`❌ Failed to create meeting: ${result.error}`);
+        }
+    };
+
+    // Create scheduled meeting
+    const handleCreateScheduledMeeting = async () => {
+        if (!scheduleForm.title || !scheduleForm.scheduledStart) {
+            log('❌ Title and start time are required');
+            return;
+        }
+
+        log('📅 Creating scheduled meeting...');
+        const result = await createScheduledMeeting({
+            title: scheduleForm.title,
+            description: scheduleForm.description,
+            scheduled_start: new Date(scheduleForm.scheduledStart).toISOString(),
+            scheduled_end: scheduleForm.scheduledEnd ? new Date(scheduleForm.scheduledEnd).toISOString() : undefined,
+            invited_user_ids: scheduleForm.invitedUserIds.split(',').map(s => s.trim()).filter(Boolean),
+            settings: {
+                waiting_room_enabled: enableWaitingRoom,
+                auto_admit: !enableWaitingRoom,
+            },
+        });
+
+        if (result.success && result.data) {
+            log(`✅ Meeting scheduled: ${result.data.meeting_code}`);
+            setShowScheduleDialog(false);
+            setScheduleForm({ title: '', description: '', scheduledStart: '', scheduledEnd: '', invitedUserIds: '' });
+            
+            // Refresh meetings list
+            const meetingsResult = await getMyMeetings();
+            if (meetingsResult.success && meetingsResult.data) {
+                setMyMeetings(meetingsResult.data);
+            }
+        } else {
+            log(`❌ Failed to schedule: ${result.error}`);
+        }
+    };
+
+    // Start a scheduled meeting
+    const handleStartScheduledMeeting = async (meetingId: string) => {
+        log('▶️ Starting meeting...');
+        const result = await startMeeting(meetingId);
+        if (result.success && result.data) {
+            setCurrentMeeting(result.data);
+            setShouldAutoJoin(true);
+            setIsHost(true);
+        } else {
+            log(`❌ Failed to start: ${result.error}`);
         }
     };
 
@@ -310,11 +547,10 @@ function App() {
             setCurrentMeeting(result.data.meeting);
             setShowJoinDialog(false);
             
-            // Check if waiting room is required
             const admissionCheck = await checkAdmissionRequired(result.data.meeting.id);
             if (admissionCheck.success && admissionCheck.data?.required) {
                 log('🚪 Waiting room enabled - requesting admission...');
-                const admissionResult = await requestAdmission(result.data.meeting.id, 'User');
+                const admissionResult = await requestAdmission(result.data.meeting.id);
                 if (admissionResult.success) {
                     setIsWaiting(true);
                     setWaitingPosition(admissionResult.position || 1);
@@ -334,7 +570,25 @@ function App() {
         setCurrentMeeting(null);
         setIsInCall(false);
         setWaitingRoom([]);
+        setParticipants([]);
+        setChatMessages([]);
+        setIsHost(false);
+        setRaisedHands([]);
+        setReactions([]);
         log('👋 Left meeting');
+    };
+
+    // End meeting (host only)
+    const handleEndMeeting = async () => {
+        if (!currentMeeting) return;
+        
+        log('🛑 Ending meeting...');
+        const result = await apiEndMeeting(currentMeeting.id);
+        if (result.success) {
+            handleLeaveMeeting();
+        } else {
+            log(`❌ Failed to end: ${result.error}`);
+        }
     };
 
     // ============================================
@@ -356,7 +610,6 @@ function App() {
             setActiveCallId(result.data.callId);
             setIsInCall(true);
             
-            // Get the meeting by ID for WebRTC
             const meetingResult = await getMeetingById(result.data.meetingId);
             if (meetingResult.success && meetingResult.data) {
                 setCurrentMeeting(meetingResult.data);
@@ -381,13 +634,10 @@ function App() {
             setIsInCall(true);
             setCallStatus('In call');
             
-            // Get the meeting by ID for WebRTC
             const meetingResult = await getMeetingById(incomingCall.meetingId);
             if (meetingResult.success && meetingResult.data) {
                 setCurrentMeeting(meetingResult.data);
                 setShouldAutoJoin(true);
-            } else {
-                log(`⚠️ Could not get meeting details: ${meetingResult.error}`);
             }
             setIncomingCall(null);
         } else {
@@ -422,6 +672,63 @@ function App() {
     };
 
     // ============================================
+    // HOST CONTROL FUNCTIONS
+    // ============================================
+
+    const handleMuteAll = async (mute: boolean) => {
+        if (!currentMeeting) return;
+        
+        log(`${mute ? '🔇 Muting' : '🔊 Unmuting'} all participants...`);
+        const result = await muteAllParticipants(currentMeeting.id, mute);
+        if (result.success) {
+            log(`✅ ${mute ? 'Muted' : 'Unmuted'} ${result.data?.affectedCount || 0} participants`);
+            setIsAllMuted(mute);
+        } else {
+            log(`❌ Failed: ${result.error}`);
+        }
+    };
+
+    const handleAddCoHost = async () => {
+        if (!currentMeeting || !coHostUserId.trim()) return;
+        
+        log(`👑 Adding co-host: ${coHostUserId}...`);
+        const result = await addCoHost(currentMeeting.id, coHostUserId);
+        if (result.success) {
+            log('✅ Co-host added');
+            setCoHostUserId('');
+            refreshParticipants(currentMeeting.id);
+        } else {
+            log(`❌ Failed: ${result.error}`);
+        }
+    };
+
+    const handleRemoveCoHost = async (userId: string) => {
+        if (!currentMeeting) return;
+        
+        log(`👑 Removing co-host: ${userId}...`);
+        const result = await removeCoHost(currentMeeting.id, userId);
+        if (result.success) {
+            log('✅ Co-host removed');
+            refreshParticipants(currentMeeting.id);
+        } else {
+            log(`❌ Failed: ${result.error}`);
+        }
+    };
+
+    const handleRemoveParticipant = async (userId: string) => {
+        if (!currentMeeting) return;
+        
+        log(`🚫 Removing participant: ${userId}...`);
+        const result = await removeParticipant(currentMeeting.id, userId);
+        if (result.success) {
+            log('✅ Participant removed');
+            refreshParticipants(currentMeeting.id);
+        } else {
+            log(`❌ Failed: ${result.error}`);
+        }
+    };
+
+    // ============================================
     // WAITING ROOM FUNCTIONS
     // ============================================
 
@@ -451,12 +758,51 @@ function App() {
         }
     };
 
-    // Display WebRTC errors
-    useEffect(() => {
-        if (webRTCError) {
-            log(`❌ WebRTC Error: ${webRTCError}`);
-        }
-    }, [webRTCError, log]);
+    // ============================================
+    // CHAT FUNCTIONS
+    // ============================================
+
+    const handleSendMessage = () => {
+        if (!chatInput.trim() || !currentMeeting || !socketRef.current) return;
+        
+        socketRef.current.emit('send-message', {
+            meetingId: currentMeeting.id,
+            message: chatInput,
+            recipientType: 'all',
+        });
+        
+        setChatInput('');
+    };
+
+    const handleTyping = (typing: boolean) => {
+        if (!currentMeeting || !socketRef.current) return;
+        socketRef.current.emit('typing', { meetingId: currentMeeting.id, typing });
+    };
+
+    // ============================================
+    // REACTIONS & HAND RAISE
+    // ============================================
+
+    const sendReaction = (emoji: string) => {
+        if (!currentMeeting || !socketRef.current) return;
+        socketRef.current.emit('send-reaction', { meetingId: currentMeeting.id, reaction: emoji });
+    };
+
+    const toggleHandRaise = () => {
+        if (!currentMeeting || !socketRef.current) return;
+        const newState = !isHandRaised;
+        socketRef.current.emit('raise-hand', { meetingId: currentMeeting.id, raised: newState });
+        setIsHandRaised(newState);
+    };
+
+    // ============================================
+    // RECORDING
+    // ============================================
+
+    const toggleRecording = () => {
+        if (!currentMeeting || !socketRef.current) return;
+        socketRef.current.emit('toggle-recording', { meetingId: currentMeeting.id, start: !isRecording });
+    };
 
     const getStatusColor = () => {
         switch (connectionStatus) {
@@ -471,7 +817,7 @@ function App() {
         <div className="app">
             <header className="header">
                 <h1>🎥 KCS Meeting Demo</h1>
-                <p>Direct Calls + Waiting Room</p>
+                <p>Complete Meeting Features</p>
             </header>
 
             {/* Incoming Call Modal */}
@@ -507,6 +853,74 @@ function App() {
                 </div>
             )}
 
+            {/* Schedule Meeting Dialog */}
+            {showScheduleDialog && (
+                <div className="modal-overlay">
+                    <div className="modal schedule-modal">
+                        <h2>📅 Schedule Meeting</h2>
+                        <div className="form-group">
+                            <label>Title:</label>
+                            <input 
+                                type="text"
+                                value={scheduleForm.title}
+                                onChange={e => setScheduleForm({...scheduleForm, title: e.target.value})}
+                                placeholder="Meeting title"
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Description:</label>
+                            <textarea 
+                                value={scheduleForm.description}
+                                onChange={e => setScheduleForm({...scheduleForm, description: e.target.value})}
+                                placeholder="Optional description"
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Start Time:</label>
+                            <input 
+                                type="datetime-local"
+                                value={scheduleForm.scheduledStart}
+                                onChange={e => setScheduleForm({...scheduleForm, scheduledStart: e.target.value})}
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>End Time (optional):</label>
+                            <input 
+                                type="datetime-local"
+                                value={scheduleForm.scheduledEnd}
+                                onChange={e => setScheduleForm({...scheduleForm, scheduledEnd: e.target.value})}
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Invite User IDs (comma-separated):</label>
+                            <input 
+                                type="text"
+                                value={scheduleForm.invitedUserIds}
+                                onChange={e => setScheduleForm({...scheduleForm, invitedUserIds: e.target.value})}
+                                placeholder="user-id-1, user-id-2"
+                            />
+                        </div>
+                        <div className="button-group">
+                            <button onClick={handleCreateScheduledMeeting} className="btn-success">
+                                Schedule
+                            </button>
+                            <button onClick={() => setShowScheduleDialog(false)} className="btn-danger">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Floating Reactions */}
+            <div className="reactions-container">
+                {reactions.map(r => (
+                    <div key={r.id} className="floating-reaction">
+                        {r.reaction}
+                    </div>
+                ))}
+            </div>
+
             {/* Auth Section */}
             <section className="section">
                 <h2>🔐 Authentication</h2>
@@ -527,86 +941,140 @@ function App() {
                 </span>
             </section>
 
-            {/* Direct Call Section */}
-            <section className="section">
-                <h2>📞 Direct 1:1 Call</h2>
-                <div className="form-group">
-                    <label>User ID to call:</label>
-                    <input 
-                        type="text" 
-                        value={calleeId}
-                        onChange={(e) => setCalleeId(e.target.value)}
-                        placeholder="Enter user ID (e.g., cc921785-5fce-450e-899b-7988a15d6a49)"
-                    />
-                </div>
-                <div className="button-group">
+            {/* Tab Navigation */}
+            {isConnected && !currentMeeting && (
+                <div className="tabs">
                     <button 
-                        onClick={() => handleInitiateCall('video')} 
-                        className="btn-success" 
-                        disabled={!isConnected || isInCall}
+                        className={`tab ${activeTab === 'meeting' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('meeting')}
                     >
-                        📹 Video Call
+                        🎬 Instant Meeting
                     </button>
                     <button 
-                        onClick={() => handleInitiateCall('audio')} 
-                        className="btn-primary" 
-                        disabled={!isConnected || isInCall}
+                        className={`tab ${activeTab === 'call' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('call')}
                     >
-                        📞 Audio Call
+                        📞 Direct Call
                     </button>
-                    {activeCallId && callStatus === 'Calling...' && (
-                        <button onClick={handleCancelCall} className="btn-danger">
-                            ❌ Cancel
-                        </button>
-                    )}
-                    {isInCall && (
-                        <button onClick={handleEndCall} className="btn-danger">
-                            📴 End Call
-                        </button>
-                    )}
+                    <button 
+                        className={`tab ${activeTab === 'schedule' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('schedule')}
+                    >
+                        📅 Scheduled
+                    </button>
                 </div>
-                {callStatus && <p className="call-status">{callStatus}</p>}
-            </section>
+            )}
 
-            {/* Meeting Controls */}
-            <section className="section">
-                <h2>🎬 Meeting Controls</h2>
-                <div className="form-group checkbox-group">
-                    <label>
-                        <input 
-                            type="checkbox" 
-                            checked={enableWaitingRoom}
-                            onChange={(e) => setEnableWaitingRoom(e.target.checked)}
-                        />
-                        Enable Waiting Room
-                    </label>
-                </div>
-                <div className="button-group">
-                    <button onClick={handleCreateMeeting} className="btn-success" disabled={!isConnected}>
-                        Create Meeting
-                    </button>
-                    <button onClick={() => setShowJoinDialog(true)} className="btn-primary" disabled={!isConnected}>
-                        Join Meeting
-                    </button>
-                </div>
-
-                {showJoinDialog && (
-                    <div className="join-dialog">
-                        <input 
-                            type="text"
-                            value={meetingCode}
-                            onChange={(e) => setMeetingCode(e.target.value)}
-                            placeholder="XXX-XXXX-XXX"
-                        />
-                        <button onClick={handleJoinMeeting} className="btn-success">
-                            Join
+            {/* Instant Meeting Tab */}
+            {activeTab === 'meeting' && !currentMeeting && (
+                <section className="section">
+                    <h2>🎬 Meeting Controls</h2>
+                    <div className="form-group checkbox-group">
+                        <label>
+                            <input 
+                                type="checkbox" 
+                                checked={enableWaitingRoom}
+                                onChange={(e) => setEnableWaitingRoom(e.target.checked)}
+                            />
+                            Enable Waiting Room
+                        </label>
+                    </div>
+                    <div className="button-group">
+                        <button onClick={handleCreateMeeting} className="btn-success" disabled={!isConnected}>
+                            Create Meeting
                         </button>
-                        <button onClick={() => setShowJoinDialog(false)} className="btn-danger">
-                            Cancel
+                        <button onClick={() => setShowJoinDialog(true)} className="btn-primary" disabled={!isConnected}>
+                            Join Meeting
                         </button>
                     </div>
-                )}
-            </section>
+
+                    {showJoinDialog && (
+                        <div className="join-dialog">
+                            <input 
+                                type="text"
+                                value={meetingCode}
+                                onChange={(e) => setMeetingCode(e.target.value)}
+                                placeholder="XXX-XXXX-XXX"
+                            />
+                            <button onClick={handleJoinMeeting} className="btn-success">
+                                Join
+                            </button>
+                            <button onClick={() => setShowJoinDialog(false)} className="btn-danger">
+                                Cancel
+                            </button>
+                        </div>
+                    )}
+                </section>
+            )}
+
+            {/* Direct Call Tab */}
+            {activeTab === 'call' && !currentMeeting && (
+                <section className="section">
+                    <h2>📞 Direct 1:1 Call</h2>
+                    <div className="form-group">
+                        <label>User ID to call:</label>
+                        <input 
+                            type="text" 
+                            value={calleeId}
+                            onChange={(e) => setCalleeId(e.target.value)}
+                            placeholder="Enter user ID"
+                        />
+                    </div>
+                    <div className="button-group">
+                        <button 
+                            onClick={() => handleInitiateCall('video')} 
+                            className="btn-success" 
+                            disabled={!isConnected || isInCall}
+                        >
+                            📹 Video Call
+                        </button>
+                        <button 
+                            onClick={() => handleInitiateCall('audio')} 
+                            className="btn-primary" 
+                            disabled={!isConnected || isInCall}
+                        >
+                            📞 Audio Call
+                        </button>
+                        {activeCallId && callStatus === 'Calling...' && (
+                            <button onClick={handleCancelCall} className="btn-danger">
+                                ❌ Cancel
+                            </button>
+                        )}
+                    </div>
+                    {callStatus && <p className="call-status">{callStatus}</p>}
+                </section>
+            )}
+
+            {/* Scheduled Meetings Tab */}
+            {activeTab === 'schedule' && !currentMeeting && (
+                <section className="section">
+                    <h2>📅 Scheduled Meetings</h2>
+                    <button onClick={() => setShowScheduleDialog(true)} className="btn-success">
+                        + New Scheduled Meeting
+                    </button>
+                    
+                    <div className="meetings-list">
+                        {myMeetings.filter(m => m.meeting_status === 'scheduled').map(meeting => (
+                            <div key={meeting.id} className="meeting-card">
+                                <h3>{meeting.title}</h3>
+                                <p>Code: <code>{meeting.meeting_code}</code></p>
+                                <p>Status: {meeting.meeting_status}</p>
+                                <div className="button-group">
+                                    <button 
+                                        onClick={() => handleStartScheduledMeeting(meeting.id)}
+                                        className="btn-success"
+                                    >
+                                        ▶️ Start
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                        {myMeetings.filter(m => m.meeting_status === 'scheduled').length === 0 && (
+                            <p className="no-meetings">No scheduled meetings</p>
+                        )}
+                    </div>
+                </section>
+            )}
 
             {/* Waiting Room Management (for hosts) */}
             {currentMeeting && waitingRoom.length > 0 && (
@@ -638,77 +1106,193 @@ function App() {
 
             {/* Current Meeting Info */}
             {currentMeeting && !isWaiting && (
-                <section className="section meeting-info">
-                    <h2>📋 Current Meeting</h2>
-                    <p><strong>Title:</strong> {currentMeeting.title}</p>
-                    <p><strong>Code:</strong> <code>{currentMeeting.meeting_code}</code></p>
-                    <p>
-                        <strong>Status:</strong> 
-                        <span style={{ color: getStatusColor(), marginLeft: 8 }}>
-                            {connectionStatus === 'connected' && '🟢 Connected'}
-                            {connectionStatus === 'connecting' && '🟡 Connecting...'}
-                            {connectionStatus === 'fallback' && '🟡 Preview Mode'}
-                            {connectionStatus === 'disconnected' && '🔴 Disconnected'}
-                        </span>
-                    </p>
+                <>
+                    <section className="section meeting-info">
+                        <h2>📋 Current Meeting {isHost && <span className="host-badge">👑 HOST</span>}</h2>
+                        <p><strong>Title:</strong> {currentMeeting.title}</p>
+                        <p><strong>Code:</strong> <code>{currentMeeting.meeting_code}</code></p>
+                        <p>
+                            <strong>Status:</strong> 
+                            <span style={{ color: getStatusColor(), marginLeft: 8 }}>
+                                {connectionStatus === 'connected' && '🟢 Connected'}
+                                {connectionStatus === 'connecting' && '🟡 Connecting...'}
+                                {connectionStatus === 'fallback' && '🟡 Preview Mode'}
+                                {connectionStatus === 'disconnected' && '🔴 Disconnected'}
+                            </span>
+                        </p>
 
-                    {/* 🎚️ Dynamic Optimization Display */}
-                    {meetingTier && optimization && (
-                        <div className="optimization-info" style={{ 
-                            marginTop: 12, 
-                            padding: 12, 
-                            backgroundColor: '#1a1a2e', 
-                            borderRadius: 8,
-                            border: '1px solid #333'
-                        }}>
-                            <p style={{ margin: '0 0 8px 0' }}>
-                                <strong>🎚️ Meeting Tier:</strong>{' '}
-                                <span style={{ 
-                                    padding: '2px 8px', 
-                                    borderRadius: 4,
-                                    fontWeight: 'bold',
-                                    backgroundColor: 
-                                        meetingTier === 'SMALL' ? '#22c55e' :
-                                        meetingTier === 'MEDIUM' ? '#3b82f6' :
-                                        meetingTier === 'LARGE' ? '#f59e0b' : '#ef4444',
-                                    color: 'white'
-                                }}>
-                                    {meetingTier}
-                                </span>
-                                <span style={{ marginLeft: 8, opacity: 0.7 }}>
-                                    ({optimization.config.participantCount} participants)
-                                </span>
-                            </p>
-                            <p style={{ margin: '4px 0', fontSize: 12, opacity: 0.8 }}>
-                                📹 Video: {optimization.config.video.recommendedWidth}×{optimization.config.video.recommendedHeight}@{optimization.config.video.recommendedFps}fps, 
-                                max {(optimization.config.video.maxBitrate / 1000).toFixed(0)}kbps
-                            </p>
-                            <p style={{ margin: '4px 0', fontSize: 12, opacity: 0.8 }}>
-                                📊 Bandwidth: ↑{optimization.bandwidthEstimate.perParticipantUpload}kbps, 
-                                ↓{optimization.bandwidthEstimate.perParticipantDownload}kbps
-                            </p>
-                            <p style={{ margin: '4px 0', fontSize: 12, opacity: 0.6 }}>
-                                🎯 Features: Video default={optimization.config.features.enableVideoByDefault ? 'ON' : 'OFF'}, 
-                                Audio default={optimization.config.features.enableAudioByDefault ? 'ON' : 'OFF'}
-                            </p>
+                        {/* Dynamic Optimization Display */}
+                        {meetingTier && optimization && (
+                            <div className="optimization-info">
+                                <p>
+                                    <strong>🎚️ Meeting Tier:</strong>{' '}
+                                    <span className={`tier-badge tier-${meetingTier.toLowerCase()}`}>
+                                        {meetingTier}
+                                    </span>
+                                    <span style={{ marginLeft: 8, opacity: 0.7 }}>
+                                        ({optimization.config.participantCount} participants)
+                                    </span>
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Raised Hands */}
+                        {raisedHands.length > 0 && (
+                            <div className="raised-hands">
+                                <strong>✋ Raised Hands:</strong>
+                                {raisedHands.map(h => (
+                                    <span key={h.participantId} className="hand-badge">{h.userName}</span>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Media Controls */}
+                        <div className="button-group">
+                            <button onClick={toggleVideo} className={isVideoEnabled ? 'btn-danger' : 'btn-primary'}>
+                                {isVideoEnabled ? '📹 Stop Camera' : '📹 Start Camera'}
+                            </button>
+                            <button onClick={toggleAudio} className={isAudioEnabled ? 'btn-danger' : 'btn-primary'}>
+                                {isAudioEnabled ? '🔇 Mute' : '🎤 Unmute'}
+                            </button>
+                            <button onClick={toggleScreenShare} className={isScreenSharing ? 'btn-danger' : 'btn-secondary'}>
+                                {isScreenSharing ? '🖥️ Stop Sharing' : '🖥️ Share Screen'}
+                            </button>
                         </div>
+
+                        {/* Reactions */}
+                        <div className="reactions-bar">
+                            <button onClick={() => sendReaction('👍')}>👍</button>
+                            <button onClick={() => sendReaction('👏')}>👏</button>
+                            <button onClick={() => sendReaction('❤️')}>❤️</button>
+                            <button onClick={() => sendReaction('😂')}>😂</button>
+                            <button onClick={() => sendReaction('🎉')}>🎉</button>
+                            <button onClick={toggleHandRaise} className={isHandRaised ? 'btn-active' : ''}>
+                                ✋ {isHandRaised ? 'Lower' : 'Raise'}
+                            </button>
+                        </div>
+
+                        {/* Leave/End */}
+                        <div className="button-group">
+                            <button onClick={() => setShowChat(!showChat)} className="btn-secondary">
+                                💬 Chat
+                            </button>
+                            {isHost && (
+                                <>
+                                    <button onClick={toggleRecording} className={isRecording ? 'btn-danger' : 'btn-secondary'}>
+                                        {isRecording ? '⏹️ Stop Recording' : '🎥 Record'}
+                                    </button>
+                                    <button onClick={handleEndMeeting} className="btn-danger">
+                                        🛑 End Meeting
+                                    </button>
+                                </>
+                            )}
+                            <button onClick={handleLeaveMeeting} className="btn-danger">
+                                👋 Leave
+                            </button>
+                            {isInCall && (
+                                <button onClick={handleEndCall} className="btn-danger">
+                                    📴 End Call
+                                </button>
+                            )}
+                        </div>
+                    </section>
+
+                    {/* Host Controls */}
+                    {isHost && (
+                        <section className="section host-controls">
+                            <h2>👑 Host Controls</h2>
+                            
+                            {/* Mute All */}
+                            <div className="button-group">
+                                <button onClick={() => handleMuteAll(true)} className="btn-secondary">
+                                    🔇 Mute All
+                                </button>
+                                <button onClick={() => handleMuteAll(false)} className="btn-secondary">
+                                    🔊 Unmute All
+                                </button>
+                            </div>
+
+                            {/* Co-Host Management */}
+                            <div className="form-group">
+                                <label>Add Co-Host:</label>
+                                <div className="input-group">
+                                    <input 
+                                        type="text"
+                                        value={coHostUserId}
+                                        onChange={e => setCoHostUserId(e.target.value)}
+                                        placeholder="User ID"
+                                    />
+                                    <button onClick={handleAddCoHost} className="btn-success">
+                                        Add
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Participants List */}
+                            <h3>Participants ({participants.length})</h3>
+                            <div className="participants-list">
+                                {participants.map(p => (
+                                    <div key={p.id} className="participant-item">
+                                        <span>
+                                            {p.participant_name} 
+                                            {p.permissions.is_host && ' 👑'}
+                                            {p.permissions.is_co_host && ' 🎖️'}
+                                        </span>
+                                        <div className="participant-actions">
+                                            {p.permissions.is_co_host && (
+                                                <button 
+                                                    onClick={() => handleRemoveCoHost(p.user_id)}
+                                                    className="btn-small btn-secondary"
+                                                >
+                                                    Remove Co-Host
+                                                </button>
+                                            )}
+                                            {!p.permissions.is_host && (
+                                                <button 
+                                                    onClick={() => handleRemoveParticipant(p.user_id)}
+                                                    className="btn-small btn-danger"
+                                                >
+                                                    Remove
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
                     )}
 
-                    <div className="button-group">
-                        <button onClick={toggleVideo} className={isVideoEnabled ? 'btn-danger' : 'btn-primary'}>
-                            {isVideoEnabled ? '📹 Stop Camera' : '📹 Start Camera'}
-                        </button>
-                        <button onClick={toggleAudio} className={isAudioEnabled ? 'btn-danger' : 'btn-primary'}>
-                            {isAudioEnabled ? '🔇 Mute' : '🎤 Unmute'}
-                        </button>
-                        <button onClick={toggleScreenShare} className={isScreenSharing ? 'btn-danger' : 'btn-secondary'}>
-                            {isScreenSharing ? '🖥️ Stop Sharing' : '🖥️ Share Screen'}
-                        </button>
-                        <button onClick={handleLeaveMeeting} className="btn-danger">
-                            👋 Leave
-                        </button>
-                    </div>
-                </section>
+                    {/* Chat Panel */}
+                    {showChat && (
+                        <section className="section chat-section">
+                            <h2>💬 Chat</h2>
+                            <div className="chat-messages">
+                                {chatMessages.map((msg, i) => (
+                                    <div key={msg.id || i} className="chat-message">
+                                        <strong>{msg.sender_name}:</strong> {msg.message}
+                                    </div>
+                                ))}
+                            </div>
+                            {typingUsers.length > 0 && (
+                                <p className="typing-indicator">{typingUsers.join(', ')} typing...</p>
+                            )}
+                            <div className="chat-input">
+                                <input 
+                                    type="text"
+                                    value={chatInput}
+                                    onChange={e => setChatInput(e.target.value)}
+                                    onFocus={() => handleTyping(true)}
+                                    onBlur={() => handleTyping(false)}
+                                    onKeyPress={e => e.key === 'Enter' && handleSendMessage()}
+                                    placeholder="Type a message..."
+                                />
+                                <button onClick={handleSendMessage} className="btn-primary">
+                                    Send
+                                </button>
+                            </div>
+                        </section>
+                    )}
+                </>
             )}
 
             {/* Video Grid */}

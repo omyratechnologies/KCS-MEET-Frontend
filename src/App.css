@@ -302,6 +302,7 @@ button:disabled {
         opacity: 0;
         transform: scale(0.9) translateY(-20px);
     }
+
     to {
         opacity: 1;
         transform: scale(1) translateY(0);
@@ -430,4 +431,330 @@ button:disabled {
 .meeting-info {
     background: linear-gradient(135deg, #f0fdf4, #dcfce7);
     border: 2px solid #22c55e;
+}
+
+/* ============================================
+   NEW FEATURES STYLES
+   ============================================ */
+
+/* Tabs */
+.tabs {
+    display: flex;
+    gap: 4px;
+    background: white;
+    padding: 8px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.tab {
+    flex: 1;
+    background: #f7fafc;
+    border: none;
+    padding: 14px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #4a5568;
+}
+
+.tab:hover {
+    background: #edf2f7;
+}
+
+.tab.active {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+}
+
+/* Schedule Modal */
+.schedule-modal {
+    max-width: 500px;
+}
+
+.schedule-modal textarea {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    resize: vertical;
+    min-height: 80px;
+}
+
+.schedule-modal input[type="datetime-local"] {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+/* Meetings List */
+.meetings-list {
+    margin-top: 16px;
+    display: grid;
+    gap: 16px;
+}
+
+.meeting-card {
+    background: #f7fafc;
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+}
+
+.meeting-card h3 {
+    color: #2d3748;
+    margin-bottom: 8px;
+}
+
+.meeting-card p {
+    color: #718096;
+    margin-bottom: 4px;
+    font-size: 14px;
+}
+
+.no-meetings {
+    color: #a0aec0;
+    text-align: center;
+    padding: 32px;
+}
+
+/* Host Badge */
+.host-badge {
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: 12px;
+}
+
+/* Optimization Info */
+.optimization-info {
+    margin-top: 12px;
+    padding: 12px;
+    background: #1a1a2e;
+    border-radius: 8px;
+    border: 1px solid #333;
+}
+
+.optimization-info p {
+    color: white;
+    margin: 4px 0;
+}
+
+.tier-badge {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: bold;
+    color: white;
+}
+
+.tier-badge.tier-small {
+    background: #22c55e;
+}
+
+.tier-badge.tier-medium {
+    background: #3b82f6;
+}
+
+.tier-badge.tier-large {
+    background: #f59e0b;
+}
+
+.tier-badge.tier-massive {
+    background: #ef4444;
+}
+
+/* Reactions Bar */
+.reactions-bar {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+
+.reactions-bar button {
+    padding: 8px 16px;
+    background: #f7fafc;
+    border: 2px solid #e2e8f0;
+    border-radius: 20px;
+    font-size: 18px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.reactions-bar button:hover {
+    background: #edf2f7;
+    transform: scale(1.1);
+}
+
+.reactions-bar button.btn-active {
+    background: #fef3c7;
+    border-color: #f59e0b;
+}
+
+/* Floating Reactions */
+.reactions-container {
+    position: fixed;
+    bottom: 100px;
+    right: 20px;
+    pointer-events: none;
+    z-index: 100;
+}
+
+.floating-reaction {
+    font-size: 32px;
+    animation: floatUp 3s ease-out forwards;
+    margin-bottom: 8px;
+}
+
+@keyframes floatUp {
+    0% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+
+    100% {
+        opacity: 0;
+        transform: translateY(-100px) scale(1.5);
+    }
+}
+
+/* Raised Hands */
+.raised-hands {
+    margin-top: 12px;
+    padding: 12px;
+    background: #fef3c7;
+    border-radius: 8px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.hand-badge {
+    background: #f59e0b;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* Host Controls */
+.host-controls {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    border: 2px solid #f59e0b;
+}
+
+.host-controls h2,
+.host-controls h3 {
+    color: #92400e;
+}
+
+.input-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.input-group input {
+    flex: 1;
+}
+
+/* Participants List */
+.participants-list {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.participant-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.participant-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* Chat Section */
+.chat-section {
+    background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+    border: 2px solid #0ea5e9;
+}
+
+.chat-section h2 {
+    color: #0369a1;
+}
+
+.chat-messages {
+    background: white;
+    border-radius: 8px;
+    padding: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+    margin-bottom: 12px;
+}
+
+.chat-message {
+    padding: 8px 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.chat-message:last-child {
+    border-bottom: none;
+}
+
+.chat-message strong {
+    color: #0369a1;
+}
+
+.typing-indicator {
+    color: #a0aec0;
+    font-size: 12px;
+    font-style: italic;
+    margin-bottom: 8px;
+}
+
+.chat-input {
+    display: flex;
+    gap: 8px;
+}
+
+.chat-input input {
+    flex: 1;
+    max-width: none;
+}
+
+/* Input types */
+input[type="datetime-local"],
+textarea {
+    width: 100%;
+    max-width: 500px;
+    padding: 12px 16px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: border-color 0.2s;
+    font-family: inherit;
+}
+
+input[type="datetime-local"]:focus,
+textarea:focus {
+    outline: none;
+    border-color: #667eea;
 }
