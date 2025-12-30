@@ -24,7 +24,7 @@ import {
 import { useWebRTC } from './hooks/useWebRTC';
 import './App.css';
 
-const SOCKET_URL = 'https://devws.letscatchup-kcs.com';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'https://devws.letscatchup-kcs.com';
 
 interface IncomingCall {
     callId: string;

@@ -1,4 +1,4 @@
-const API_URL = 'https://devapi.letscatchup-kcs.com/api';
+const API_URL = import.meta.env.VITE_BASE_URL || 'https://devapi.letscatchup-kcs.com/api';
 
 // Store your auth token here - get it from login
 let authToken = '';
