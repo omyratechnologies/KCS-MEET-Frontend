@@ -361,6 +361,30 @@ function App() {
             setIsRecording(data.recording);
         });
 
+        // ============================================
+        // CHAT EVENTS
+        // ============================================
+        socket.on('new-message', (data: ChatMessage) => {
+            console.log('💬 New message received:', data);
+            setChatMessages(prev => [...prev, data]);
+        });
+
+        socket.on('typing', (data: { userName: string; typing: boolean }) => {
+            if (data.typing) {
+                setTypingUsers(prev => [...new Set([...prev, data.userName])]);
+            } else {
+                setTypingUsers(prev => prev.filter(u => u !== data.userName));
+            }
+        });
+
+        // ============================================
+        // MEETING ENDED EVENT
+        // ============================================
+        socket.on('meeting-ended', (data: { by: string; reason: string }) => {
+            log(`🛑 Meeting ended by host: ${data.reason}`);
+            handleLeaveMeeting();
+        });
+
         socket.on('disconnect', () => {
             log('🔌 Socket disconnected');
         });
