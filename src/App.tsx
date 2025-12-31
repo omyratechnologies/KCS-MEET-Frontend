@@ -419,16 +419,26 @@ function App() {
     };
 
     const refreshParticipants = async (meetingId: string) => {
+        console.log('🔄 Refreshing participants for meeting:', meetingId);
         const result = await getParticipants(meetingId);
+        console.log('📊 Participants API response:', result);
         if (result.success && result.data) {
+            console.log('✅ Setting participants:', result.data.length, 'participants');
             setParticipants(result.data);
+        } else {
+            console.error('❌ Failed to load participants:', result.error);
         }
     };
 
     const loadChatHistory = async (meetingId: string) => {
+        console.log('💬 Loading chat history for meeting:', meetingId);
         const result = await getChatMessages(meetingId);
+        console.log('📊 Chat API response:', result);
         if (result.success && result.data) {
+            console.log('✅ Setting chat messages:', result.data.length, 'messages');
             setChatMessages(result.data);
+        } else {
+            console.error('❌ Failed to load chat:', result.error);
         }
     };
 
