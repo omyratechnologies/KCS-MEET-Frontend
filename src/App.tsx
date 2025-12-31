@@ -178,10 +178,19 @@ function App() {
             setIncomingCall(data);
         });
 
-        socket.on('call-accepted', () => {
+        socket.on('call-accepted', async (data: { callId: string; meetingId: string }) => {
             log('✅ Call accepted by other party!');
             setCallStatus('In call');
             setIsInCall(true);
+            
+            // NOW join WebRTC after call is accepted
+            if (data.meetingId) {
+                const meetingResult = await getMeetingById(data.meetingId);
+                if (meetingResult.success && meetingResult.data) {
+                    setCurrentMeeting(meetingResult.data);
+                    setShouldAutoJoin(true);
+                }
+            }
         });
 
         socket.on('call-rejected', (data: { callId: string; reason?: string }) => {
@@ -333,12 +342,11 @@ function App() {
         };
     }, [token, log, currentMeeting]);
 
-    // Join socket room when meeting changes
+    // Handle meeting changes (load chat, participants, set host)
+    // NOTE: Do NOT emit join-meeting here - the WebRTC hook handles that
+    // Emitting from both sockets causes duplicate participant entries
     useEffect(() => {
-        if (socketRef.current && currentMeeting) {
-            log(`🔗 Joining socket room for meeting ${currentMeeting.id}`);
-            socketRef.current.emit('join-meeting', { meetingId: currentMeeting.id });
-            
+        if (currentMeeting) {
             // Set host status
             setIsHost(currentMeeting.creator_id === getCurrentUserId());
             
@@ -348,7 +356,7 @@ function App() {
             // Load participants
             refreshParticipants(currentMeeting.id);
         }
-    }, [currentMeeting, log]);
+    }, [currentMeeting]);
 
     // Poll waiting room for hosts
     useEffect(() => {
@@ -596,15 +604,9 @@ function App() {
         if (result.success && result.data) {
             log(`📞 Call initiated (ID: ${result.data.callId})`);
             setActiveCallId(result.data.callId);
-            setIsInCall(true);
-            
-            const meetingResult = await getMeetingById(result.data.meetingId);
-            if (meetingResult.success && meetingResult.data) {
-                setCurrentMeeting(meetingResult.data);
-                setShouldAutoJoin(true);
-            } else {
-                log(`⚠️ Could not get meeting details: ${meetingResult.error}`);
-            }
+            // DON'T set isInCall or join WebRTC yet!
+            // Wait for call-accepted event before joining
+            log('⏳ Waiting for callee to answer...');
         } else {
             log(`❌ Failed to initiate call: ${result.error}`);
             setCallStatus('');
