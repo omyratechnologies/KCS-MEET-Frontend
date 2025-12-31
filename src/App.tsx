@@ -424,6 +424,17 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token, log]);
 
+    // Helper functions
+    const getCurrentUserId = useCallback(() => {
+        // Extract user ID from JWT token (simplified)
+        try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            return payload.user_id || payload.sub;
+        } catch {
+            return '';
+        }
+    }, [token]);
+
     // Handle meeting changes (load chat, participants, set host)
     // NOTE: Do NOT emit join-meeting here - the WebRTC hook handles that
     // Emitting from both sockets causes duplicate participant entries
@@ -438,7 +449,7 @@ function App() {
             // Load participants
             refreshParticipants(currentMeeting.id);
         }
-    }, [currentMeeting]);
+    }, [currentMeeting, getCurrentUserId]);
 
     // Poll waiting room for hosts
     useEffect(() => {
@@ -467,17 +478,6 @@ function App() {
             log(`❌ WebRTC Error: ${webRTCError}`);
         }
     }, [webRTCError, log]);
-
-    // Helper functions
-    const getCurrentUserId = () => {
-        // Extract user ID from JWT token (simplified)
-        try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            return payload.user_id || payload.sub;
-        } catch {
-            return '';
-        }
-    };
 
     const refreshWaitingRoom = async (meetingId: string) => {
         const result = await getWaitingRoom(meetingId);
