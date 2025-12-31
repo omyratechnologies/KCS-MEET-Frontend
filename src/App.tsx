@@ -124,6 +124,12 @@ function App() {
     
     // Socket ref for real-time events
     const socketRef = useRef<Socket | null>(null);
+    
+    // Ref to access current meeting in socket handlers without stale closures
+    const currentMeetingRef = useRef<Meeting | null>(null);
+    useEffect(() => {
+        currentMeetingRef.current = currentMeeting;
+    }, [currentMeeting]);
 
     const {
         localVideoRef,
@@ -243,9 +249,10 @@ function App() {
             setCurrentMeeting(null);
         });
 
-        socket.on('waiting-room-update', (data: { waitingRoom: WaitingRoomEntry[] }) => {
-            log(`🚪 Waiting room updated: ${data.waitingRoom.length} waiting`);
-            setWaitingRoom(data.waitingRoom);
+        socket.on('waiting-room-update', (data: { waitingRoom?: WaitingRoomEntry[] }) => {
+            const waitingList = data?.waitingRoom || [];
+            log(`🚪 Waiting room updated: ${waitingList.length} waiting`);
+            setWaitingRoom(waitingList);
         });
 
         socket.on('admission-requested', (data: { userName: string }) => {
@@ -313,15 +320,17 @@ function App() {
 
         socket.on('participant-joined', (data: { userName: string }) => {
             log(`👋 ${data.userName} joined the meeting`);
-            if (currentMeeting) {
-                refreshParticipants(currentMeeting.id);
+            // Use ref to get latest meeting value (avoid stale closure)
+            if (currentMeetingRef.current) {
+                refreshParticipants(currentMeetingRef.current.id);
             }
         });
 
         socket.on('participant-left', (data: { userName: string }) => {
             log(`👋 ${data.userName} left the meeting`);
-            if (currentMeeting) {
-                refreshParticipants(currentMeeting.id);
+            // Use ref to get latest meeting value (avoid stale closure)
+            if (currentMeetingRef.current) {
+                refreshParticipants(currentMeetingRef.current.id);
             }
         });
 
@@ -340,7 +349,12 @@ function App() {
         return () => {
             socket.disconnect();
         };
-    }, [token, log, currentMeeting]);
+    // IMPORTANT: Only depend on token, NOT on currentMeeting!
+    // The socket should stay connected as long as we have a token.
+    // If we depend on currentMeeting, the socket reconnects every time it changes,
+    // which breaks call-ended notifications since the socket disconnects before receiving them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [token, log]);
 
     // Handle meeting changes (load chat, participants, set host)
     // NOTE: Do NOT emit join-meeting here - the WebRTC hook handles that
@@ -1297,16 +1311,22 @@ function App() {
                         {participant.cameraStream && (
                             <div className="video-container">
                                 <video 
+                                    key={`video-${odId}-${participant._updateTs}`}
                                     autoPlay 
                                     playsInline
                                     ref={(el) => {
                                         if (el && participant.cameraStream) {
                                             if (el.srcObject !== participant.cameraStream) {
+                                                console.log('📹 Setting video srcObject for', odId);
                                                 el.srcObject = participant.cameraStream;
                                             }
                                             if (el.paused) {
                                                 el.muted = true;
-                                                el.play().catch(() => {});
+                                                el.play().then(() => {
+                                                    console.log('✅ Video playing for', odId);
+                                                }).catch((err) => {
+                                                    console.error('❌ Video play failed for', odId, err);
+                                                });
                                             }
                                         }
                                     }}
@@ -1338,11 +1358,21 @@ function App() {
 
                         {participant.audioStream && (
                             <audio
+                                key={`audio-${odId}-${participant._updateTs}`}
                                 autoPlay
                                 ref={(el) => {
-                                    if (el && participant.audioStream && el.srcObject !== participant.audioStream) {
-                                        el.srcObject = participant.audioStream;
-                                        el.play().catch(() => {});
+                                    if (el && participant.audioStream) {
+                                        if (el.srcObject !== participant.audioStream) {
+                                            console.log('🔊 Setting audio srcObject for', odId);
+                                            el.srcObject = participant.audioStream;
+                                            el.volume = 1.0;
+                                            el.muted = false;
+                                            el.play().then(() => {
+                                                console.log('✅ Audio playing for', odId);
+                                            }).catch((err) => {
+                                                console.error('❌ Audio play failed for', odId, err);
+                                            });
+                                        }
                                     }
                                 }}
                             />
