@@ -440,7 +440,17 @@ function App() {
         // ============================================
         socket.on('meeting-ended', (data: { by: string; reason: string }) => {
             log(`🛑 Meeting ended by host: ${data.reason}`);
-            alert('The meeting has been ended by the host.');
+            
+            // Extract current user ID
+            const myId = getCurrentUserId();
+            
+            // Only show alert to participants, not to the person who ended it
+            if (data.by !== myId) {
+                alert('The meeting has been ended by the host.');
+            } else {
+                log('ℹ️ Suppressing "meeting ended" alert for the host who ended it');
+            }
+            
             handleLeaveMeeting();
         });
 
