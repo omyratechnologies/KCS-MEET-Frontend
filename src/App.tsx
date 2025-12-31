@@ -167,6 +167,14 @@ function App() {
         onParticipantChange: handleWebRTCParticipantChange,
     });
 
+    // Refs for WebRTC state to avoid stale closures in socket handlers
+    const isAudioEnabledRef = useRef(isAudioEnabled);
+    const toggleAudioRef = useRef(toggleAudio);
+    useEffect(() => {
+        isAudioEnabledRef.current = isAudioEnabled;
+        toggleAudioRef.current = toggleAudio;
+    }, [isAudioEnabled, toggleAudio]);
+
     const log = useCallback((message: string) => {
         const timestamp = new Date().toLocaleTimeString();
         setLogs(prev => [...prev.slice(-50), `[${timestamp}] ${message}`]);
@@ -326,15 +334,29 @@ function App() {
         socket.on('all-muted', () => {
             log(`🔇 All participants muted by host`);
             setIsAllMuted(true);
+            // Actually mute the audio if audio is currently enabled
+            if (isAudioEnabledRef.current) {
+                log('🔇 Muting my audio due to host action');
+                toggleAudioRef.current(); // Mute audio
+            }
         });
 
         socket.on('all-unmuted', () => {
             log(`🔊 All participants unmuted`);
             setIsAllMuted(false);
+            // Don't auto-unmute - let user control their own audio
         });
 
         socket.on('muted-by-host', (data: { muted: boolean }) => {
             log(`${data.muted ? '🔇 You were muted' : '🔊 You were unmuted'} by host`);
+            // Actually mute/unmute the audio  
+            if (data.muted && isAudioEnabledRef.current) {
+                log('🔇 Muting my audio');
+                toggleAudioRef.current(); // Mute
+            } else if (!data.muted && !isAudioEnabledRef.current) {
+                log('🔊 Unmuting my audio');
+                toggleAudioRef.current(); // Unmute
+            }
         });
 
         socket.on('participant-joined', (data: { userName: string }) => {
