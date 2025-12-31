@@ -93,6 +93,7 @@ function App() {
     const [participants, setParticipants] = useState<Participant[]>([]);
     const [coHostUserId, setCoHostUserId] = useState('');
     const [, setIsAllMuted] = useState(false);
+    const [isMutedByHost, setIsMutedByHost] = useState(false);
     
     // Chat state
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -344,23 +345,50 @@ function App() {
         socket.on('all-unmuted', () => {
             log(`🔊 All participants unmuted`);
             setIsAllMuted(false);
-            // Don't auto-unmute - let user control their own audio
+            // Clear host-mute flag for local user (do not auto-unmute)
+            setIsMutedByHost(false);
         });
 
         const handleMutedByHost = (data: { muted: boolean; kind?: string }) => {
             log(`${data.muted ? '🔇 You were muted' : '🔊 You were unmuted'} by host`);
-            // Actually mute/unmute the audio  
-            if (data.muted && isAudioEnabledRef.current) {
-                log('🔇 Muting my audio');
-                toggleAudioRef.current(); // Mute
-            } else if (!data.muted && !isAudioEnabledRef.current) {
-                log('🔊 Unmuting my audio');
-                toggleAudioRef.current(); // Unmute
+            if (data.muted) {
+                setIsMutedByHost(true);
+                // Actually mute the audio if audio is currently enabled
+                if (isAudioEnabledRef.current) {
+                    log('🔇 Muting my audio');
+                    toggleAudioRef.current(); // Mute
+                }
+            } else {
+                setIsMutedByHost(false);
+                // Don't auto-unmute - let user control their own audio
             }
         };
 
         socket.on('muted-by-host', handleMutedByHost);
         socket.on('muted:by-host', handleMutedByHost);
+
+        // Handle producer-closed events (including server-initiated host mute)
+        socket.on('producer-closed', (data: { participantId: string; userId?: string; producerId: string; kind: 'audio' | 'video'; mutedByHost?: boolean; hostUserId?: string }) => {
+            log(`❌ Producer closed: ${data.producerId} kind:${data.kind} participantId:${data.participantId} mutedByHost:${data.mutedByHost}`);
+
+            // If server indicates this producer was closed due to host mute, update participant UI
+            if (data.mutedByHost && data.kind === 'audio' && data.userId) {
+                setParticipants(prev => prev.map(p => (p.user_id === data.userId ? { ...p, audio: false, mutedByHost: true } : p)));
+
+                const myId = (() => {
+                    try { const payload = JSON.parse(atob(getAuthToken().split('.')[1])); return payload.user_id || payload.sub; } catch { return ''; }
+                })();
+
+                // If this applies to local user, update local mute state and block unmute
+                if (data.userId === myId) {
+                    setIsMutedByHost(true);
+                    if (isAudioEnabledRef.current) {
+                        log('🔇 Muting my audio due to host action (producer-closed)');
+                        toggleAudioRef.current();
+                    }
+                }
+            }
+        });
 
         socket.on('participant-joined', (data: { userName: string }) => {
             log(`👋 ${data.userName} joined the meeting`);
@@ -1233,8 +1261,15 @@ function App() {
                             <button onClick={toggleVideo} className={isVideoEnabled ? 'btn-danger' : 'btn-primary'}>
                                 {isVideoEnabled ? '📹 Stop Camera' : '📹 Start Camera'}
                             </button>
-                            <button onClick={toggleAudio} className={isAudioEnabled ? 'btn-danger' : 'btn-primary'}>
-                                {isAudioEnabled ? '🔇 Mute' : '🎤 Unmute'}
+                            <button onClick={() => {
+                                // If user is host-muted, prevent unmute
+                                if (!isAudioEnabled && isMutedByHost) {
+                                    log('🔇 You are muted by host. You cannot unmute until host allows.');
+                                    return;
+                                }
+                                toggleAudio();
+                            }} className={isAudioEnabled ? 'btn-danger' : 'btn-primary'}>
+                                {isAudioEnabled ? '🔇 Mute' : (isMutedByHost ? '🔇 Muted (by host)' : '🎤 Unmute')}
                             </button>
                             <button onClick={toggleScreenShare} className={isScreenSharing ? 'btn-danger' : 'btn-secondary'}>
                                 {isScreenSharing ? '🖥️ Stop Sharing' : '🖥️ Share Screen'}
@@ -1321,6 +1356,9 @@ function App() {
                                             {p.permissions.is_co_host && ' 🎖️'}
                                         </span>
                                         <div className="participant-actions">
+                                            {((p as unknown) as { mutedByHost?: boolean }).mutedByHost && (
+                                                <span className="muted-by-host">🔇 Muted by host</span>
+                                            )}
                                             {p.permissions.is_co_host && (
                                                 <button 
                                                     onClick={() => handleRemoveCoHost(p.user_id)}
