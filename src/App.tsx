@@ -1310,23 +1310,18 @@ function App() {
                     <React.Fragment key={odId}>
                         {participant.cameraStream && (
                             <div className="video-container">
+                                {/* Stable key - do NOT use _updateTs as it causes element recreation */}
                                 <video 
-                                    key={`video-${odId}-${participant._updateTs}`}
+                                    key={`video-${odId}`}
                                     autoPlay 
                                     playsInline
+                                    muted
                                     ref={(el) => {
                                         if (el && participant.cameraStream) {
                                             if (el.srcObject !== participant.cameraStream) {
-                                                console.log('📹 Setting video srcObject for', odId);
+                                                console.log('📹 Setting video srcObject for', odId, 'tracks:', participant.cameraStream.getTracks().length);
                                                 el.srcObject = participant.cameraStream;
-                                            }
-                                            if (el.paused) {
-                                                el.muted = true;
-                                                el.play().then(() => {
-                                                    console.log('✅ Video playing for', odId);
-                                                }).catch((err) => {
-                                                    console.error('❌ Video play failed for', odId, err);
-                                                });
+                                                // Don't call play() here - autoPlay handles it
                                             }
                                         }
                                     }}
@@ -1338,16 +1333,14 @@ function App() {
                         {participant.screenStream && (
                             <div className="video-container screen-share">
                                 <video 
+                                    key={`screen-${odId}`}
                                     autoPlay 
                                     playsInline
+                                    muted
                                     ref={(el) => {
                                         if (el && participant.screenStream) {
                                             if (el.srcObject !== participant.screenStream) {
                                                 el.srcObject = participant.screenStream;
-                                            }
-                                            if (el.paused) {
-                                                el.muted = true;
-                                                el.play().catch(() => {});
                                             }
                                         }
                                     }}
@@ -1358,20 +1351,16 @@ function App() {
 
                         {participant.audioStream && (
                             <audio
-                                key={`audio-${odId}-${participant._updateTs}`}
+                                key={`audio-${odId}`}
                                 autoPlay
                                 ref={(el) => {
                                     if (el && participant.audioStream) {
                                         if (el.srcObject !== participant.audioStream) {
-                                            console.log('🔊 Setting audio srcObject for', odId);
+                                            console.log('🔊 Setting audio srcObject for', odId, 'tracks:', participant.audioStream.getAudioTracks().length);
                                             el.srcObject = participant.audioStream;
-                                            el.volume = 1.0;
+                                            // Ensure not muted for audio
                                             el.muted = false;
-                                            el.play().then(() => {
-                                                console.log('✅ Audio playing for', odId);
-                                            }).catch((err) => {
-                                                console.error('❌ Audio play failed for', odId, err);
-                                            });
+                                            el.volume = 1.0;
                                         }
                                     }
                                 }}
