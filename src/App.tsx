@@ -347,7 +347,7 @@ function App() {
             // Don't auto-unmute - let user control their own audio
         });
 
-        socket.on('muted-by-host', (data: { muted: boolean }) => {
+        const handleMutedByHost = (data: { muted: boolean; kind?: string }) => {
             log(`${data.muted ? '🔇 You were muted' : '🔊 You were unmuted'} by host`);
             // Actually mute/unmute the audio  
             if (data.muted && isAudioEnabledRef.current) {
@@ -357,7 +357,10 @@ function App() {
                 log('🔊 Unmuting my audio');
                 toggleAudioRef.current(); // Unmute
             }
-        });
+        };
+
+        socket.on('muted-by-host', handleMutedByHost);
+        socket.on('muted:by-host', handleMutedByHost);
 
         socket.on('participant-joined', (data: { userName: string }) => {
             log(`👋 ${data.userName} joined the meeting`);
