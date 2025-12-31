@@ -131,6 +131,22 @@ function App() {
         currentMeetingRef.current = currentMeeting;
     }, [currentMeeting]);
 
+    // Callback for when WebRTC participants change
+    const handleWebRTCParticipantChange = useCallback(() => {
+        if (currentMeetingRef.current) {
+            console.log('🔄 WebRTC participant change detected, refreshing...');
+            // Use dynamic import pattern to avoid circular dependency
+            import('./api/meeting').then(({ getParticipants }) => {
+                getParticipants(currentMeetingRef.current!.id).then(result => {
+                    if (result.success && result.data) {
+                        setParticipants(result.data);
+                        console.log('✅ Participants refreshed:', result.data.length);
+                    }
+                });
+            });
+        }
+    }, []);
+
     const {
         localVideoRef,
         remoteParticipants,
@@ -146,7 +162,10 @@ function App() {
         toggleScreenShare,
         joinMeeting: webRTCJoin,
         leaveMeeting: webRTCLeave,
-    } = useWebRTC({ meeting: currentMeeting });
+    } = useWebRTC({ 
+        meeting: currentMeeting,
+        onParticipantChange: handleWebRTCParticipantChange,
+    });
 
     const log = useCallback((message: string) => {
         const timestamp = new Date().toLocaleTimeString();

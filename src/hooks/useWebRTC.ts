@@ -113,7 +113,13 @@ interface UseWebRTCReturn {
     leaveMeeting: () => void;
 }
 
-export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCReturn => {
+export const useWebRTC = ({
+    meeting,
+    onParticipantChange
+}: {
+    meeting: Meeting | null;
+    onParticipantChange?: () => void;
+}): UseWebRTCReturn => {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const [remoteParticipants, setRemoteParticipants] = useState<Map<string, RemoteParticipant>>(new Map());
     const [isConnected, setIsConnected] = useState(false);
@@ -456,19 +462,22 @@ export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCRe
                 console.log('✅ Joined meeting:', data);
                 setIsConnected(true);
                 setConnectionStatus('connected');
+                
+                // Notify parent to refresh participants now that we're connected
+                onParticipantChange?.();
 
                 // 🎚️ Capture dynamic optimization config from server
                 if (data.optimization) {
                     console.log('🎚️ Meeting optimization config:', data.optimization);
                     setOptimization(data.optimization);
                     setMeetingTier(data.optimization.config?.tier || null);
-                    
+
                     // Log the tier and recommended settings
                     const config = data.optimization.config;
                     if (config) {
                         console.log(`📊 Meeting tier: ${config.tier} (${config.participantCount} participants)`);
-                        console.log(`📹 Video: ${config.video.recommendedWidth}x${config.video.recommendedHeight}@${config.video.recommendedFps}fps, max ${config.video.maxBitrate/1000}kbps`);
-                        console.log(`🎙️ Audio: max ${config.audio.maxBitrate/1000}kbps`);
+                        console.log(`📹 Video: ${config.video.recommendedWidth}x${config.video.recommendedHeight}@${config.video.recommendedFps}fps, max ${config.video.maxBitrate / 1000}kbps`);
+                        console.log(`🎙️ Audio: max ${config.audio.maxBitrate / 1000}kbps`);
                         console.log(`🎯 Features: video by default=${config.features.enableVideoByDefault}, audio by default=${config.features.enableAudioByDefault}`);
                     }
                 }
@@ -736,6 +745,8 @@ export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCRe
 
             socket.on('participant-joined', (data: any) => {
                 console.log('👤 Participant joined:', data);
+                // Notify parent component to refresh participant list
+                onParticipantChange?.();
             });
 
             socket.on('participant-left', (data: any) => {
@@ -747,6 +758,8 @@ export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCRe
                 });
                 // Clean up the stream ref
                 remoteStreamsRef.current.delete(data.participantId);
+                // Notify parent component to refresh participant list
+                onParticipantChange?.();
             });
 
             // Handle producer closed (when someone turns off camera/mic)
@@ -843,7 +856,7 @@ export const useWebRTC = ({ meeting }: { meeting: Meeting | null }): UseWebRTCRe
                 console.log(`📊 New tier: ${data.config.tier} (${data.config.participantCount} participants)`);
                 console.log(`📹 Video: ${data.config.video.recommendedWidth}x${data.config.video.recommendedHeight}@${data.config.video.recommendedFps}fps`);
                 console.log(`📊 Bandwidth: ${data.bandwidthEstimate.perParticipantUpload}kbps up, ${data.bandwidthEstimate.perParticipantDownload}kbps down`);
-                
+
                 // Update optimization state
                 setOptimization({
                     config: data.config,
