@@ -31,15 +31,13 @@ import {
     // Participants
     getParticipants,
     removeParticipant,
-    // Chat & Recordings
+    // Chat
     getChatMessages,
-    getRecordings,
     // Types
     type Meeting,
     type WaitingRoomEntry,
     type Participant,
     type ChatMessage,
-    type Recording,
 } from './api/meeting';
 import { useWebRTC } from './hooks/useWebRTC';
 import './App.css';
@@ -108,7 +106,6 @@ function App() {
     const [isHandRaised, setIsHandRaised] = useState(false);
     
     // Recordings
-    const [, setRecordings] = useState<Recording[]>([]);
     const [isRecording, setIsRecording] = useState(false);
     
     // Scheduled meetings
@@ -410,15 +407,6 @@ function App() {
         const result = await getChatMessages(meetingId);
         if (result.success && result.data) {
             setChatMessages(result.data);
-        }
-    };
-
-    // Load recordings function (can be used for recordings panel)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const loadRecordings = async (meetingId: string) => {
-        const result = await getRecordings(meetingId);
-        if (result.success && result.data) {
-            setRecordings(result.data);
         }
     };
 
