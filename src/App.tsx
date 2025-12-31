@@ -419,7 +419,12 @@ function App() {
         // ============================================
         socket.on('new-message', (data: ChatMessage) => {
             console.log('💬 New message received:', data);
-            setChatMessages(prev => [...prev, data]);
+            // Deduplicate messages by id to handle receiving from multiple sockets
+            setChatMessages(prev => {
+                const exists = prev.some(msg => msg.id === data.id);
+                if (exists) return prev;
+                return [...prev, data];
+            });
         });
 
         socket.on('typing', (data: { userName: string; typing: boolean }) => {
