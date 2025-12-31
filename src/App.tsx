@@ -438,6 +438,19 @@ function App() {
             handleLeaveMeeting();
         });
 
+        socket.on('removed-from-meeting', (data: { removedBy: string; reason: string }) => {
+            log(`🚫 You were removed from the meeting by ${data.removedBy}`);
+            alert(`You have been removed from the meeting by ${data.removedBy}. Reason: ${data.reason}`);
+            handleLeaveMeeting();
+        });
+
+        socket.on('participant-removed', (data: { userId: string; removedBy: string }) => {
+            log(`🚫 Participant ${data.userId} was removed from the meeting by ${data.removedBy}`);
+            if (currentMeetingRef.current) {
+                refreshParticipants(currentMeetingRef.current.id);
+            }
+        });
+
         socket.on('disconnect', () => {
             log('🔌 Socket disconnected');
         });
