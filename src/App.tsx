@@ -435,6 +435,7 @@ function App() {
         // ============================================
         socket.on('meeting-ended', (data: { by: string; reason: string }) => {
             log(`🛑 Meeting ended by host: ${data.reason}`);
+            alert('The meeting has been ended by the host.');
             handleLeaveMeeting();
         });
 
@@ -478,7 +479,7 @@ function App() {
 
     // Handle meeting changes (load chat, participants, set host)
     // NOTE: Do NOT emit join-meeting here - the WebRTC hook handles that
-    // Emitting from both sockets causes duplicate participant entries
+    // But we DO need to join a notification room to receive chat messages and events
     useEffect(() => {
         if (currentMeeting) {
             // Set host status
@@ -489,8 +490,22 @@ function App() {
             
             // Load participants
             refreshParticipants(currentMeeting.id);
+            
+            // Join the meeting room for notifications (chat, participant events, etc.)
+            // This is separate from the WebRTC join-meeting which creates participant entries
+            if (socketRef.current) {
+                socketRef.current.emit('join-notification-room', { meetingId: currentMeeting.id });
+                log('📣 Joined notification room for meeting');
+            }
         }
-    }, [currentMeeting, getCurrentUserId]);
+        
+        // Leave notification room when meeting ends
+        return () => {
+            if (socketRef.current && currentMeeting) {
+                socketRef.current.emit('leave-notification-room', { meetingId: currentMeeting.id });
+            }
+        };
+    }, [currentMeeting, getCurrentUserId, log]);
 
     // Poll waiting room for hosts
     useEffect(() => {
